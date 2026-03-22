@@ -162,7 +162,7 @@ FROM Manege
 INNER JOIN Visiteur
 ON Visiteur.hauteur >= Manege.hauteur_minimale
 AND Visiteur.niveau_membre >= Manege.niveau_membre
-WHERE Visiteur.prenom='Salim';
+WHERE Visiteur.id=201;
 
 -- 3. Donner la liste des visiteurs (leurs noms et prénoms) pouvant accéder aux "Montagnes Russes" selon leur taille et leur niveau de membre.
 SELECT Visiteur.Nom, Visiteur.Prenom 
