@@ -176,7 +176,7 @@ WHERE Manege.nom='Montagnes Russes';
 -- 4.Donner le nombre total de visites de visiteurs ayant eu lieu entre le 1er février 2024 et le 28 février 2024
 SELECT COUNT (*) AS Nombre_total_visiteurs
 FROM VisiteVisiteur v
-WHERE v.date BETWEEN '2024-02-01' AND '2024-02-28'
+WHERE v.date BETWEEN '2024-02-01' AND '2024-02-28';
 
 --5 Donner un tableau contenant, pour chaque visiteur (leurs noms), le nombre de manèges différents qu’il a visités.
 SELECT v.nom, COUNT(DISTINCT vm.nom_manege) AS nombre_manege_differents
@@ -185,8 +185,143 @@ LEFT JOIN VisiteManege vm
 ON v.id = vm.id_visiteur
 GROUP BY v.nom;
 
+-- 6. Donner tous les manèges n’ayant pas été inspectés aujourd’hui (la date au moment de l’exécution).
+SELECT nom_manege
+FROM InspectionManege im
+WHERE date < GETDATE()
+GROUP BY nom_manege;
 
-SELECT * FROM Visiteur;
-SELECT * FROM Manege;
-SELECT * FROM VisiteVisiteur
-SELECT * FROM VisiteManege;
+-- 7. Donner le nom de l’employé ayant effectué le plus grand nombre d’inspections.
+SELECT TOP 1 nom 
+FROM Employe e
+LEFT JOIN InspectionManege im
+ON e.no_employe = im.no_employe
+GROUP BY e.nom
+ORDER BY COUNT(*) DESC;
+
+-- 8. Donner le nom, prénom et le nom du manège le plus fréquenté de chaque visiteur. 
+--    Le visiteur doit avoir embarqué au moins 3 fois dans son attraction préférée pour qu’on affiche son manège préféré.
+SELECT v.prenom, v.nom, vm.nom_manege AS manege_favori
+FROM Visiteur v 
+LEFT JOIN VisiteManege vm
+ON v.id = vm.id_visiteur
+GROUP BY v.id, v.prenom, v.nom, vm.nom_manege 
+    HAVING COUNT(*) >= 3
+    AND COUNT(*) = (SELECT TOP 1 COUNT(*)
+    FROM VisiteManege vm2
+    WHERE vm2.id_visiteur = v.id
+    GROUP BY vm2.nom_manege
+    ORDER BY COUNT(*) DESC
+    );
+
+-- 9. Donner la taille moyenne des visiteurs du parc le 25 février 2024.
+SELECT AVG(v.hauteur) AS taille_moyenne
+FROM Visiteur v 
+LEFT JOIN VisiteVisiteur vv
+ON v.id = vv.id_visiteur
+WHERE vv.date = '2024-02-25';
+
+-- 10. Créer une procédure stockée qui affiche la liste des visiteurs ayant utilisé un certain manège (en utilisant son nom). 
+--     Appeler cette procédure 3 fois avec différents paramètres.
+
+CREATE OR ALTER PROCEDURE visiteManegeParNom(
+    @nomManege VARCHAR (50)
+)
+AS
+BEGIN
+  SELECT v.*
+  FROM Visiteur v 
+  LEFT JOIN VisiteManege vm
+  ON v.id = vm.id_visiteur
+  WHERE vm.nom_manege = @nomManege;  
+END;
+GO
+
+EXECUTE visiteManegeParNom
+@nomManege ='Glissade Atlantique';
+
+EXECUTE visiteManegeParNom
+@nomManege ='Montagnes Russes';
+
+EXECUTE visiteManegeParNom
+@nomManege ='Manège Volcanique';
+
+-- 11. Créer une fonction prenant en argument le nom d’un manège et qui retourne le nombre total de visites de ce manège.
+--     Appeler cette fonction 3 fois avec différents paramètres.
+
+CREATE FUNCTION nbTotalVisiteurs(
+    @nomManege VARCHAR(50)
+)
+
+RETURNS INT
+AS
+BEGIN
+  DECLARE @total int;
+  SELECT @total = COUNT(*)
+  FROM VisiteManege
+  WHERE nom_manege = @nomManege;
+  RETURN @total;
+END
+GO
+
+SELECT dbo.nbTotalVisiteurs('Glissade Atlantique') AS nb_total_visiteurs;
+SELECT dbo.nbTotalVisiteurs('Montagnes Russes') AS nb_total_visiteurs;
+SELECT dbo.nbTotalVisiteurs('Manège Volcanique') AS nb_total_visiteurs;
+
+-- 12. Créer une procédure utilisant un curseur qui parcourt tous les manèges et affiche, pour chacun, le nombre total de visites enregistrées pour ce manège. 
+--     Le curseur devra parcourir les manèges un par un et afficher leur nom ainsi que leur nombre de visites.
+CREATE OR ALTER PROCEDURE visiteParManegeCurseur
+AS
+BEGIN
+   DECLARE @nbVisiteurs INT;
+   DECLARE @nomManege VARCHAR(50);
+
+   DECLARE curseur_manege CURSOR FOR 
+        SELECT nom FROM Manege
+
+    OPEN curseur_manege;
+
+    FETCH NEXT FROM curseur_manege INTO @nomManege;
+
+    WHILE @@FETCH_STATUS = 0
+    BEGIN
+        SELECT @nbVisiteurs = COUNT(*)
+        FROM VisiteManege
+        WHERE nom_manege = @nomManege;
+
+        PRINT @nomManege + ' : ' + CAST(@nbVisiteurs AS VARCHAR) + ' visite(s).';
+
+        FETCH NEXT FROM curseur_manege INTO @nomManege;
+
+    END
+    CLOSE curseur_manege;
+    DEALLOCATE curseur_manege;
+END;
+GO
+
+EXECUTE visiteParManegeCurseur;
+
+-- 13. Créer un déclencheur (trigger) qui empêche la suppression d’un manège s’il a déjà été visité au moins une fois. 
+--     Tester ce déclencheur à l'aide d'une requête DELETE.
+
+CREATE OR ALTER TRIGGER empeche_suppr_manege
+ON Manege
+INSTEAD OF DELETE
+AS
+BEGIN
+    IF EXISTS(
+        SELECT 1
+        FROM VisiteManege vm
+        INNER JOIN deleted d ON vm.nom_manege = d.nom
+    )
+    BEGIN
+        PRINT 'Impossible de supprimer car le manege a été visité au moins 1 fois.';
+        RETURN;
+    END
+
+    DELETE FROM Manege
+    WHERE nom IN (SELECT nom FROM deleted);
+END;
+GO
+
+DELETE FROM Manege WHERE nom ='Baie des Pirates';
